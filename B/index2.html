@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>下絵をなぞって描く</title>
+  <script src="https://unpkg.com/konva@10.6.0/konva.min.js"></script>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:#172033; background:#f4f6fa; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; overflow:hidden; }
+    button, input { font: inherit; }
+    .app { width:100%; height:100vh; height:100dvh; padding:12px; display:flex; flex-direction:column; }
+    .header { display:flex; flex:none; align-items:center; justify-content:space-between; gap:16px; padding:0 4px 12px; }
+    .header h1 { margin:0; font-size:20px; }
+    .subtitle { margin:4px 0 0; color:#667085; font-size:13px; }
+    .title-input { width:280px; max-width:42vw; padding:10px 12px; border:1px solid #d5dae5; border-radius:10px; background:white; }
+    .editor-card { flex:1; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; background:white; border:1px solid #dde2ea; border-radius:16px; box-shadow:0 10px 30px rgba(25,35,60,.08); overflow:hidden; }
+    .toolbar { min-width:0; padding:8px 10px; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; border-bottom:1px solid #e5e8ef; background:#fbfcfe; }
+    .tool-group { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; padding:0 8px; }
+    .tool-group + .tool-group { border-left:1px solid #e0e4eb; }
+    .tool, .action { border:1px solid #d8dde7; background:#fff; color:#344054; border-radius:9px; min-height:38px; padding:8px 11px; cursor:pointer; }
+    .tool:hover, .action:hover { background:#f2f4f7; }
+    .tool.active { background:#172b4d; color:#fff; border-color:#172b4d; }
+    .control { display:flex; align-items:center; gap:7px; padding:0 3px; color:#475467; font-size:12px; }
+    .control input[type="color"] { width:36px; height:36px; border:0; padding:2px; background:transparent; cursor:pointer; }
+    .control input[type="range"] { width:100px; }
+    .canvas-shell { position:relative; min-height:0; min-width:0; display:flex; background-color:#f8fafc; background-image:radial-gradient(#d9dfeb 1px, transparent 1px); background-size:20px 20px; overflow:auto; overscroll-behavior:contain; }
+    #canvas { position:relative; flex:none; width:max-content; height:max-content; margin:auto; border:1px solid #dfe3eb; box-shadow:0 4px 18px rgba(28,40,68,.08); background:#fff; touch-action:none; }
+    .canvas-shell.panning, .canvas-shell.panning #canvas { cursor:grab !important; }
+    .canvas-shell.panning.is-panning, .canvas-shell.panning.is-panning #canvas { cursor:grabbing !important; }
+    .file-control { display:inline-flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; }
+    .file-control input { display:none; }
+    .image-select { max-width:190px; min-height:38px; padding:7px; border:1px solid #d8dde7; border-radius:9px; background:white; color:#344054; }
+    .zoom-value { min-width:44px; text-align:center; color:#475467; font-size:12px; }
+    .empty-hint { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; color:#667085; font-size:14px; text-align:center; padding:20px; }
+    .empty-hint[hidden] { display:none; }
+    .footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 12px; border-top:1px solid #e5e8ef; background:#fff; }
+    .hint { color:#667085; font-size:12px; }
+    .submit { border:0; border-radius:10px; padding:11px 18px; background:#2563eb; color:white; font-weight:700; cursor:pointer; }
+    .submit:disabled { opacity:.55; cursor:wait; }
+    #status { color:#475467; font-size:12px; margin-left:auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    @media(min-width:950px) and (min-height:700px){
+      .app[data-orientation="portrait"] .editor-card { grid-template-columns:265px minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto; }
+      .app[data-orientation="portrait"] .toolbar { grid-column:1; grid-row:1; flex-direction:column; justify-content:flex-start; align-content:center; align-items:stretch; gap:10px; padding:12px; border-bottom:0; border-right:1px solid #e5e8ef; }
+      .app[data-orientation="portrait"] .tool-group { justify-content:flex-start; padding:0 0 9px; border:0; border-bottom:1px solid #e0e4eb; }
+      .app[data-orientation="portrait"] .tool-group:last-child { border-bottom:0; }
+      .app[data-orientation="portrait"] .image-select { max-width:220px; }
+      .app[data-orientation="portrait"] .canvas-shell { grid-column:2; grid-row:1; }
+      .app[data-orientation="portrait"] .footer { grid-column:1 / -1; grid-row:2; }
+    }
+    @media(max-width:760px){ .app{padding:0}.editor-card{border-radius:0;border:0}.header{padding:8px 12px}.header h1{font-size:17px}.subtitle{display:none}.title-input{width:45%;max-width:none;padding:7px 9px}.toolbar{padding:6px;gap:4px}.tool-group{padding:0 3px;gap:4px}.tool-group + .tool-group{border-left:0}.tool,.action{min-height:34px;padding:5px 7px;font-size:13px}.control{font-size:11px;gap:4px}.control input[type="range"]{width:75px}.image-select{min-height:34px;max-width:155px;font-size:12px}.footer{padding:7px 10px}.hint{display:none}.submit{flex:none;padding:9px 12px}#status{margin-left:0;min-width:0} }
+  </style>
+</head>
+<body>
+  <main class="app" id="app">
+    <div class="header">
+      <div>
+        <h1>作品を描く</h1>
+        <p class="subtitle">好きな画像を下絵にして描けます</p>
+      </div>
+      <input id="title" class="title-input" placeholder="作品タイトル" />
+    </div>
+
+    <section class="editor-card">
+      <div class="toolbar" aria-label="drawing toolbar">
+        <div class="tool-group">
+          <label class="action file-control">画像を追加 <input id="images" type="file" accept="image/*" multiple /></label>
+          <select id="imageSelect" class="image-select" aria-label="下絵を選択" disabled><option value="">下絵を選択</option></select>
+        </div>
+        <div class="tool-group">
+          <button class="tool active" data-tool="pen">✎ ペン</button>
+          <button class="tool" data-tool="eraser">⌫ 消しゴム</button>
+          <button class="tool" data-tool="select">↖ 選択</button>
+          <button class="tool" data-tool="rect">▭ 四角</button>
+          <button class="tool" data-tool="circle">○ 円</button>
+          <button class="tool" data-tool="fill">▣ 塗りつぶし</button>
+          <button class="tool" data-tool="hand" aria-label="画像を動かす">✋ 移動</button>
+        </div>
+        <div class="tool-group">
+          <label class="control">色 <input id="color" type="color" value="#111827" /></label>
+          <label class="control">太さ <input id="width" type="range" min="1" max="30" value="5" /><span id="widthValue">5</span></label>
+          <label class="control">塗りの広がり <input id="fillTolerance" type="range" min="0" max="100" value="40" /><span id="fillToleranceValue">40</span></label>
+        </div>
+        <div class="tool-group">
+          <label class="control">下絵の濃さ <input id="traceOpacity" type="range" min="0" max="100" value="100" /><span id="traceOpacityValue">100%</span></label>
+        </div>
+        <div class="tool-group">
+          <button id="zoomOut" class="action" aria-label="縮小">−</button>
+          <span id="zoomValue" class="zoom-value">100%</span>
+          <button id="zoomIn" class="action" aria-label="拡大">＋</button>
+          <button id="zoomReset" class="action">画面に合わせる</button>
+        </div>
+        <div class="tool-group">
+          <button id="undo" class="action">↶ Undo</button>
+          <button id="redo" class="action">↷ Redo</button>
+          <button id="clear" class="action">クリア</button>
+        </div>
+      </div>
+
+      <div class="canvas-shell" id="canvasShell">
+        <div id="canvas"></div>
+        <div id="emptyHint" class="empty-hint">「画像を追加」から下絵を選んでください（複数選択できます）</div>
+      </div>
+
+      <div class="footer">
+        <div class="hint">拡大後は「移動」で位置を動かせます。タッチ画面では２本指でも移動できます。PNGに下絵は含まれません。</div>
+        <span id="status"></span>
+        <button id="submit" class="submit">作品を投稿</button>
+      </div>
+    </section>
+  </main>
+
+<script>
+(() => {
+  const container = document.getElementById('canvas');
+  const app = document.getElementById('app');
+  const shell = document.getElementById('canvasShell');
+  const mobile = () => window.innerWidth <= 760;
+  const margin = () => mobile() ? 10 : 18;
+  let width = 900, height = 650;
+  let zoom = 1, fitScale = 1, viewScale = 1;
+  const images = [];
+  let activeImage = null;
+  const stage = new Konva.Stage({ container: 'canvas', width, height });
+  const bgLayer = new Konva.Layer({ listening: false });
+  const guideLayer = new Konva.Layer({ listening: false });
+  const drawLayer = new Konva.Layer();
+  const uiLayer = new Konva.Layer();
+  stage.add(bgLayer, guideLayer, drawLayer, uiLayer);
+
+  const bg = new Konva.Rect({ x:0, y:0, width, height, fill:'#ffffff', listening:false });
+  bgLayer.add(bg);
+
+  let guideNode = null;
+  const transformer = new Konva.Transformer({ rotateEnabled:true, borderStroke:'#2563eb', anchorStroke:'#2563eb', anchorFill:'#fff', anchorSize:9 });
+  uiLayer.add(transformer);
+
+  let tool = 'pen';
+  let isDrawing = false;
+  let current = null;
+  let start = null;
+  const touchPoints = new Map();
+  let panningPointer = null, lastPanPoint = null, twoFingerPoint = null;
+  let history = [drawLayer.toJSON()];
+  let historyIndex = 0;
+  const fillCache = new Map();
+  let nextFillId = 0;
+
+  const $ = (id) => document.getElementById(id);
+  const color = $('color');
+  const widthInput = $('width');
+  const widthValue = $('widthValue');
+  const traceOpacity = $('traceOpacity');
+  const traceOpacityValue = $('traceOpacityValue');
+  const status = $('status');
+
+  function setTool(next) {
+    tool = next;
+    document.querySelectorAll('.tool').forEach(btn => btn.classList.toggle('active', btn.dataset.tool === tool));
+    const selecting = tool === 'select';
+    drawLayer.getChildren().forEach(node => node.draggable(selecting && !['eraser','fill'].includes(node.getAttr('kind'))));
+    if (!selecting) transformer.nodes([]);
+    shell.classList.toggle('panning', tool === 'hand');
+    stage.container().style.cursor = tool === 'hand' ? 'grab' : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair';
+  }
+
+  function cancelStroke() {
+    if (isDrawing && current) {
+      current.destroy();
+      drawLayer.batchDraw();
+    }
+    isDrawing = false;
+    current = null;
+  }
+
+  function touchCenter() {
+    const points = [...touchPoints.values()];
+    return { x:(points[0].x + points[1].x) / 2, y:(points[0].y + points[1].y) / 2 };
+  }
+
+  // One finger draws; two fingers move the zoomed image. The hand tool also
+  // moves it with one finger or a mouse, without adding drawing history.
+  shell.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'touch') {
+      touchPoints.set(event.pointerId, { x:event.clientX, y:event.clientY });
+      if (touchPoints.size === 2) {
+        cancelStroke();
+        drawLayer.getChildren().forEach(node => { if (node.isDragging()) node.stopDrag(); });
+        twoFingerPoint = touchCenter();
+        shell.classList.add('is-panning');
+      }
+    }
+    if (tool === 'hand' && panningPointer === null) {
+      panningPointer = event.pointerId;
+      lastPanPoint = { x:event.clientX, y:event.clientY };
+      shell.classList.add('is-panning');
+      shell.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    }
+  }, true);
+  shell.addEventListener('pointermove', event => {
+    if (touchPoints.has(event.pointerId)) {
+      touchPoints.set(event.pointerId, { x:event.clientX, y:event.clientY });
+    }
+    if (touchPoints.size >= 2 && twoFingerPoint) {
+      const next = touchCenter();
+      shell.scrollLeft -= next.x - twoFingerPoint.x;
+      shell.scrollTop -= next.y - twoFingerPoint.y;
+      twoFingerPoint = next;
+      event.preventDefault();
+    } else if (panningPointer === event.pointerId && lastPanPoint) {
+      shell.scrollLeft -= event.clientX - lastPanPoint.x;
+      shell.scrollTop -= event.clientY - lastPanPoint.y;
+      lastPanPoint = { x:event.clientX, y:event.clientY };
+      event.preventDefault();
+    }
+  }, true);
+  function finishPan(event) {
+    touchPoints.delete(event.pointerId);
+    if (touchPoints.size < 2) twoFingerPoint = null;
+    if (panningPointer === event.pointerId) {
+      panningPointer = null;
+      lastPanPoint = null;
+      if (shell.hasPointerCapture(event.pointerId)) shell.releasePointerCapture(event.pointerId);
+    }
+    if (!twoFingerPoint && panningPointer === null) shell.classList.remove('is-panning');
+  }
+  shell.addEventListener('pointerup', finishPan, true);
+  shell.addEventListener('pointercancel', finishPan, true);
+
+  function saveHistory() {
+    history = history.slice(0, historyIndex + 1);
+    history.push(drawLayer.toJSON());
+    historyIndex = history.length - 1;
+    updateHistoryButtons();
+  }
+
+  function restore(json) {
+    transformer.nodes([]);
+    drawLayer.destroyChildren();
+    const restored = Konva.Node.create(json);
+    restored.getChildren().forEach(node => {
+      node.remove();
+      if (node.getAttr('kind') === 'fill') node.image(fillCache.get(node.getAttr('fillId')));
+      drawLayer.add(node);
+      node.draggable(tool === 'select' && !['eraser','fill'].includes(node.getAttr('kind')));
+    });
+    drawLayer.draw();
+  }
+
+  function updateHistoryButtons() {
+    $('undo').disabled = historyIndex <= 0;
+    $('redo').disabled = historyIndex >= history.length - 1;
+  }
+
+  function pointer() {
+    const p = stage.getPointerPosition();
+    return p && { x:p.x / viewScale, y:p.y / viewScale };
+  }
+
+  function findFillRegion(pixels, imageWidth, imageHeight, sx, sy, tolerance) {
+      const first = sy * imageWidth + sx;
+      const seed = first * 4;
+      const sr = pixels[seed], sg = pixels[seed + 1], sb = pixels[seed + 2];
+      const similar = i => {
+        const p = i * 4;
+        return Math.max(Math.abs(pixels[p] - sr), Math.abs(pixels[p + 1] - sg), Math.abs(pixels[p + 2] - sb)) <= tolerance;
+      };
+      const seen = new Uint8Array(imageWidth * imageHeight);
+      const queue = new Int32Array(imageWidth * imageHeight);
+      let head = 0, tail = 1, minX = sx, maxX = sx, minY = sy, maxY = sy;
+      queue[0] = first;
+      seen[first] = 1;
+      const add = i => {
+        if (!seen[i] && similar(i)) { seen[i] = 1; queue[tail++] = i; }
+      };
+      while (head < tail) {
+        const i = queue[head++];
+        const x = i % imageWidth, y = (i - x) / imageWidth;
+        if (x === 0 || y === 0 || x === imageWidth - 1 || y === imageHeight - 1) return null;
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        add(i - 1); add(i + 1); add(i - imageWidth); add(i + imageWidth);
+      }
+      return { queue, count:tail, minX, maxX, minY, maxY };
+  }
+
+  function fillAt(pos) {
+    if (!pos || !activeImage) return;
+    const sx = Math.floor(pos.x), sy = Math.floor(pos.y);
+    if (sx < 0 || sy < 0 || sx >= width || sy >= height) return;
+    try {
+      // 表示上の薄さに左右されないよう、元の下絵を直接解析する。
+      const source = document.createElement('canvas');
+      source.width = width; source.height = height;
+      const sourceContext = source.getContext('2d', { willReadFrequently:true });
+      sourceContext.fillStyle = '#fff';
+      sourceContext.fillRect(0, 0, width, height);
+      sourceContext.drawImage(activeImage.image, 0, 0, width, height);
+      const pixels = sourceContext.getImageData(0, 0, width, height).data;
+      const region = findFillRegion(pixels, width, height, sx, sy, Number($('fillTolerance').value));
+      if (!region) {
+        status.textContent = '塗りが画像の端まで広がります。囲みを確認するか「塗りの広がり」を下げてください';
+        return;
+      }
+      const { queue, count, minX, maxX, minY, maxY } = region;
+      if (count < 8) {
+        status.textContent = '塗る範囲が小さすぎます。線の内側をタップするか「塗りの広がり」を上げてください';
+        return;
+      }
+      const fillWidth = maxX - minX + 1, fillHeight = maxY - minY + 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = fillWidth; canvas.height = fillHeight;
+      const context = canvas.getContext('2d');
+      const imageData = context.createImageData(fillWidth, fillHeight);
+      const hex = color.value;
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+      for (let j = 0; j < count; j++) {
+        const i = queue[j], x = i % width, y = (i - x) / width;
+        const p = ((y - minY) * fillWidth + x - minX) * 4;
+        imageData.data[p] = r; imageData.data[p + 1] = g;
+        imageData.data[p + 2] = b; imageData.data[p + 3] = 255;
+      }
+      context.putImageData(imageData, 0, 0);
+      const fillId = ++nextFillId;
+      fillCache.set(fillId, canvas);
+      const fillNode = new Konva.Image({ image:canvas, x:minX, y:minY, width:fillWidth, height:fillHeight,
+        kind:'fill', fillId, listening:false });
+      const fillCount = drawLayer.getChildren().filter(node => node.getAttr('kind') === 'fill').length;
+      drawLayer.add(fillNode);
+      fillNode.zIndex(fillCount); // 塗りは描いた線より下、既存の塗りより上に置く
+      drawLayer.batchDraw();
+      saveHistory();
+      status.textContent = '下絵の囲まれた部分を塗りました';
+    } catch (err) {
+      status.textContent = `塗りつぶしに失敗しました: ${err.message || err}`;
+    }
+  }
+
+  stage.on('pointerdown', (e) => {
+    if (tool === 'hand' || touchPoints.size >= 2) return;
+    if (tool === 'select') {
+      if (e.target === stage || e.target === bg) transformer.nodes([]);
+      else if (e.target.getLayer() === drawLayer && e.target.getAttr('kind') !== 'eraser') transformer.nodes([e.target]);
+      uiLayer.draw();
+      return;
+    }
+    if (tool === 'fill') { fillAt(pointer()); return; }
+
+    isDrawing = true;
+    start = pointer();
+    if (!start) return;
+    const stroke = color.value;
+    const strokeWidth = Number(widthInput.value);
+
+    if (tool === 'pen' || tool === 'eraser') {
+      current = new Konva.Line({
+        points:[start.x, start.y], stroke, strokeWidth: tool === 'eraser' ? Math.max(strokeWidth * 3, 18) : strokeWidth,
+        lineCap:'round', lineJoin:'round', tension:.15,
+        globalCompositeOperation: tool === 'eraser' ? 'destination-out' : 'source-over',
+        kind: tool
+      });
+    } else if (tool === 'rect') {
+      current = new Konva.Rect({ x:start.x, y:start.y, width:1, height:1, stroke, strokeWidth, fill:'transparent', kind:'shape' });
+    } else if (tool === 'circle') {
+      current = new Konva.Ellipse({ x:start.x, y:start.y, radiusX:1, radiusY:1, stroke, strokeWidth, fill:'transparent', kind:'shape' });
+    }
+    if (current) drawLayer.add(current);
+  });
+
+  stage.on('pointermove', () => {
+    if (touchPoints.size >= 2) return;
+    if (!isDrawing || !current) return;
+    const pos = pointer();
+    if (!pos) return;
+    if (tool === 'pen' || tool === 'eraser') {
+      current.points(current.points().concat([pos.x, pos.y]));
+    } else if (tool === 'rect') {
+      current.setAttrs({ x:Math.min(start.x, pos.x), y:Math.min(start.y, pos.y), width:Math.abs(pos.x-start.x), height:Math.abs(pos.y-start.y) });
+    } else if (tool === 'circle') {
+      current.setAttrs({ x:(start.x+pos.x)/2, y:(start.y+pos.y)/2, radiusX:Math.abs(pos.x-start.x)/2, radiusY:Math.abs(pos.y-start.y)/2 });
+    }
+    drawLayer.batchDraw();
+  });
+
+  stage.on('pointerup pointercancel', () => {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (current) saveHistory();
+    current = null;
+  });
+
+  drawLayer.on('dragend transformend', () => saveHistory());
+
+  document.querySelectorAll('.tool').forEach(btn => btn.addEventListener('click', () => setTool(btn.dataset.tool)));
+  widthInput.addEventListener('input', () => widthValue.textContent = widthInput.value);
+  $('fillTolerance').addEventListener('input', () => $('fillToleranceValue').textContent = $('fillTolerance').value);
+  traceOpacity.addEventListener('input', () => {
+    traceOpacityValue.textContent = `${traceOpacity.value}%`;
+    if (guideNode) {
+      guideNode.opacity(Number(traceOpacity.value) / 100);
+      guideLayer.batchDraw();
+    }
+  });
+  $('undo').addEventListener('click', () => { if(historyIndex>0){ historyIndex--; restore(history[historyIndex]); updateHistoryButtons(); } });
+  $('redo').addEventListener('click', () => { if(historyIndex<history.length-1){ historyIndex++; restore(history[historyIndex]); updateHistoryButtons(); } });
+  $('clear').addEventListener('click', () => { transformer.nodes([]); drawLayer.destroyChildren(); drawLayer.draw(); saveHistory(); });
+
+  function layout() {
+    const gutter = margin();
+    const availableW = Math.max(1, shell.clientWidth - gutter * 2 - 2);
+    const availableH = Math.max(1, shell.clientHeight - gutter * 2 - 2);
+    fitScale = Math.min(availableW / width, availableH / height);
+    viewScale = fitScale * zoom;
+    const displayW = Math.max(1, Math.round(width * viewScale));
+    const displayH = Math.max(1, Math.round(height * viewScale));
+    stage.size({ width:displayW, height:displayH });
+    stage.scale({ x:viewScale, y:viewScale });
+    $('zoomValue').textContent = `${Math.round(zoom * 100)}%`;
+    stage.batchDraw();
+  }
+
+  function setZoom(next) {
+    const oldW = stage.width(), oldH = stage.height();
+    const centerX = shell.scrollLeft + shell.clientWidth / 2;
+    const centerY = shell.scrollTop + shell.clientHeight / 2;
+    zoom = Math.max(.25, Math.min(4, next));
+    layout();
+    shell.scrollLeft = centerX * stage.width() / oldW - shell.clientWidth / 2;
+    shell.scrollTop = centerY * stage.height() / oldH - shell.clientHeight / 2;
+  }
+  $('zoomIn').addEventListener('click', () => setZoom(zoom * 1.25));
+  $('zoomOut').addEventListener('click', () => setZoom(zoom / 1.25));
+  $('zoomReset').addEventListener('click', () => { zoom = 1; layout(); shell.scrollTo(0, 0); });
+
+  function selectImage(item) {
+    if (isDrawing) { isDrawing = false; current = null; }
+    if (activeImage) {
+      activeImage.history = history;
+      activeImage.historyIndex = historyIndex;
+    }
+    activeImage = item;
+    transformer.nodes([]);
+    if (guideNode) guideNode.destroy();
+    const ratio = Math.min(1, 1600 / Math.max(item.image.naturalWidth, item.image.naturalHeight));
+    width = Math.max(1, Math.round(item.image.naturalWidth * ratio));
+    height = Math.max(1, Math.round(item.image.naturalHeight * ratio));
+    app.dataset.orientation = height > width ? 'portrait' : 'landscape';
+    bg.size({ width, height });
+    guideNode = new Konva.Image({ image:item.image, x:0, y:0, width, height,
+      opacity:Number(traceOpacity.value) / 100, listening:false });
+    guideLayer.add(guideNode);
+    history = item.history || [new Konva.Layer().toJSON()];
+    historyIndex = item.historyIndex ?? 0;
+    restore(history[historyIndex]);
+    updateHistoryButtons();
+    zoom = 1;
+    layout();
+    shell.scrollTo(0, 0);
+    $('emptyHint').hidden = true;
+    $('imageSelect').value = String(images.indexOf(item));
+    status.textContent = `${height > width ? '縦画像' : '横画像'}：${item.file.name}（${item.image.naturalWidth} × ${item.image.naturalHeight}）`;
+  }
+
+  $('images').addEventListener('change', async (event) => {
+    const files = [...event.target.files];
+    if (!files.length) return;
+    let first = null, failed = 0;
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) { failed++; continue; }
+      const url = URL.createObjectURL(file);
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const item = { file, image, url, history:null, historyIndex:0 };
+        images.push(item);
+        const option = new Option(file.name, String(images.length - 1));
+        $('imageSelect').add(option);
+        if (!first) first = item;
+      } catch {
+        URL.revokeObjectURL(url);
+        failed++;
+      }
+    }
+    $('imageSelect').disabled = !images.length;
+    if (first) selectImage(first);
+    if (failed) status.textContent += `／読み込めなかった画像: ${failed}件`;
+    event.target.value = ''; // 同じファイルを再度選べるようにする
+  });
+  $('imageSelect').addEventListener('change', event => {
+    const item = images[Number(event.target.value)];
+    if (item && item !== activeImage) selectImage(item);
+  });
+  window.addEventListener('pagehide', () => images.forEach(item => URL.revokeObjectURL(item.url)));
+
+  $('submit').addEventListener('click', async () => {
+    const button = $('submit');
+    button.disabled = true;
+    status.textContent = 'PNG生成中…';
+    transformer.hide();
+    guideLayer.hide();
+    const previousWidth = stage.width(), previousHeight = stage.height();
+    stage.scale({ x:1, y:1 });
+    stage.size({ width, height });
+    uiLayer.draw();
+    try {
+      const blob = await stage.toBlob({ mimeType:'image/png', pixelRatio:2 });
+      if (!blob) throw new Error('PNGの生成に失敗しました');
+      const form = new FormData();
+      form.append('title', $('title').value.trim() || '無題');
+      form.append('author_name', 'demo-user');
+      form.append('image', blob, 'drawing.png');
+
+      // 本番では以下を有効化:
+      // const res = await fetch('/api/submit.php', { method:'POST', body:form });
+      // if (!res.ok) throw new Error('投稿に失敗しました');
+
+      status.textContent = `PNG Blob生成OK (${Math.round(blob.size / 1024)} KB)`;
+    } catch (err) {
+      status.textContent = err.message || String(err);
+    } finally {
+      stage.size({ width:previousWidth, height:previousHeight });
+      stage.scale({ x:viewScale, y:viewScale });
+      guideLayer.show();
+      transformer.show();
+      guideLayer.draw();
+      uiLayer.draw();
+      button.disabled = false;
+    }
+  });
+
+  new ResizeObserver(() => layout()).observe(shell);
+  window.addEventListener('resize', layout);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
+  layout();
+  setTool('pen');
+  updateHistoryButtons();
+})();
+</script>
+</body>
+</html>
